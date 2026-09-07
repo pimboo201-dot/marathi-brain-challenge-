@@ -1,0 +1,97 @@
+name: Build Marathi Brain Challenge APK
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build-apk:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Extract uploaded wrapper ZIP
+        run: |
+          unzip -q marathi_brain_challenge_one_upload_apk_builder.zip -d wrapper
+          V2ZIP=$(find wrapper -name "v2-project.zip" -type f | head -1)
+          if [ -z "$V2ZIP" ]; then
+            echo "V2 project ZIP not found"
+            exit 1
+          fi
+          unzip -q "$V2ZIP" -d project
+
+      - name: Find V2 project
+        run: |
+          PROJECT_DIR=$(find project -type d -name player -print -quit | xargs -r dirname)
+          if [ -z "$PROJECT_DIR" ]; then
+            echo "Player folder not found"
+            exit 1
+          fi
+          echo "PROJECT_DIR=$PROJECT_DIR" >> $GITHUB_ENV
+
+      - name: Prepare Android project
+        run: |
+          mkdir -p www
+          cp -r "$PROJECT_DIR/player/"* www/
+
+          cat > package.json <<'EOF'
+          {
+            "name": "marathi-brain-challenge",
+            "version": "1.0.0",
+            "private": true,
+            "dependencies": {
+              "@capacitor/android": "^8.0.0",
+              "@capacitor/core": "^8.0.0"
+            },
+            "devDependencies": {
+              "@capacitor/cli": "^8.0.0",
+              "typescript": "^5.0.0"
+            }
+          }
+          EOF
+
+          cat > capacitor.config.ts <<'EOF'
+          import type { CapacitorConfig } from '@capacitor/cli';
+
+          const config: CapacitorConfig = {
+            appId: 'com.marathibrainchallenge.app',
+            appName: 'Marathi Brain Challenge',
+            webDir: 'www'
+          };
+
+          export default config;
+          EOF
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Setup Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+
+      - name: Install dependencies
+        run: npm install
+
+      - name: Add Android
+        run: npx cap add android
+
+      - name: Sync Android
+        run: npx cap sync android
+
+      - name: Build APK
+        working-directory: android
+        run: ./gradlew assembleDebug
+
+      - name: Upload APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: Marathi-Brain-Challenge-APK
+          path: android/app/build/outputs/apk/debug/app-debug.apk
