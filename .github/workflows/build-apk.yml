@@ -1,4 +1,4 @@
-name: Build Marathi Brain Challenge APK V15
+name: Build Marathi Brain Challenge APK V16
 
 on:
   workflow_dispatch:
@@ -14,39 +14,30 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Extract V15 wrapper ZIP
+      - name: Extract V16 wrapper ZIP
         run: |
-          unzip -q marathi_brain_challenge_one_upload_apk_builder_v15.zip -d wrapper
-
+          unzip -q marathi_brain_challenge_fixed_v16.zip -d wrapper
           V2ZIP=$(find wrapper -name "v2-project.zip" -type f | head -1)
-
           if [ -z "$V2ZIP" ]; then
             echo "V2 project ZIP not found"
             exit 1
           fi
-
           unzip -q "$V2ZIP" -d project
 
       - name: Find V2 project
         run: |
           PROJECT_DIR=$(find project -type d -name player -print -quit | xargs -r dirname)
-
           if [ -z "$PROJECT_DIR" ]; then
             echo "Player folder not found"
             exit 1
           fi
-
           echo "PROJECT_DIR=$PROJECT_DIR" >> $GITHUB_ENV
 
       - name: Prepare web + Capacitor project
         run: |
           mkdir -p www
-
           cp -r "$PROJECT_DIR/player/"* www/
-
-          if [ -d "$PROJECT_DIR/assets" ]; then
-            cp -r "$PROJECT_DIR/assets" .
-          fi
+          cp -r "$PROJECT_DIR/assets" .
 
           cat > package.json <<'EOF'
           {
@@ -99,131 +90,55 @@ jobs:
 
       - name: Generate Android app icon and splash
         run: |
-          if [ -d "assets" ]; then
-            npx @capacitor/assets generate \
-              --android \
-              --assetPath assets \
-              --iconBackgroundColor '#1D2942' \
-              --iconBackgroundColorDark '#152238' \
-              --splashBackgroundColor '#F4F6F9' \
-              --splashBackgroundColorDark '#1D2942'
-          fi
+          npx @capacitor/assets generate --android --assetPath assets --iconBackgroundColor '#1D2942' --iconBackgroundColorDark '#152238' --splashBackgroundColor '#F4F6F9' --splashBackgroundColorDark '#1D2942'
 
-      - name: Configure Android SDK and system bars
+      - name: Configure Android SDK and native system bars
         run: |
           python3 - <<'PY'
           from pathlib import Path
           import re
 
-          # ------------------------------------------------------------
-          # Android SDK versions
-          # ------------------------------------------------------------
-
-          files = [
-              Path("android/variables.gradle"),
-              Path("android/app/build.gradle"),
-              Path("android/app/build.gradle.kts")
-          ]
-
+          # Capacitor templates can keep SDK versions in variables.gradle or directly in build.gradle.
+          files=[Path('android/variables.gradle'),Path('android/app/build.gradle'),Path('android/app/build.gradle.kts')]
           for p in files:
               if not p.exists():
                   continue
-
-              s = p.read_text()
-
-              replacements = [
+              s=p.read_text()
+              replacements=[
                   (r'(minSdkVersion\s*[=:]\s*)\d+', r'\g<1>24'),
                   (r'(targetSdkVersion\s*[=:]\s*)\d+', r'\g<1>36'),
                   (r'(compileSdkVersion\s*[=:]\s*)\d+', r'\g<1>36'),
-
                   (r'(minSdk\s*[=:]\s*)\d+', r'\g<1>24'),
                   (r'(targetSdk\s*[=:]\s*)\d+', r'\g<1>36'),
-                  (r'(compileSdk\s*[=:]\s*)\d+', r'\g<1>36')
+                  (r'(compileSdk\s*[=:]\s*)\d+', r'\g<1>36'),
               ]
-
-              for pattern, replacement in replacements:
-                  s = re.sub(pattern, replacement, s)
-
+              for pat,repl in replacements:
+                  s=re.sub(pat,repl,s)
               p.write_text(s)
 
-          # ------------------------------------------------------------
-          # AdMob TEST App ID
-          # ------------------------------------------------------------
-
-          strings = Path(
-              "android/app/src/main/res/values/strings.xml"
-          )
-
-          strings.parent.mkdir(parents=True, exist_ok=True)
-
-          text = (
-              strings.read_text()
-              if strings.exists()
-              else "<resources>\n</resources>\n"
-          )
-
-          admob_id = "ca-app-pub-3940256099942544~3347511713"
-
+          # AdMob test application ID. Replace with your own App ID before production release.
+          strings=Path('android/app/src/main/res/values/strings.xml')
+          strings.parent.mkdir(parents=True,exist_ok=True)
+          text=strings.read_text() if strings.exists() else '<resources>\n</resources>\n'
           if 'name="admob_app_id"' in text:
-              text = re.sub(
-                  r'<string name="admob_app_id">.*?</string>',
-                  f'<string name="admob_app_id">{admob_id}</string>',
-                  text
-              )
+              text=re.sub(r'<string name="admob_app_id">.*?</string>', '<string name="admob_app_id">ca-app-pub-3940256099942544~3347511713</string>', text)
           else:
-              text = text.replace(
-                  "</resources>",
-                  f'  <string name="admob_app_id">{admob_id}</string>\n'
-                  "</resources>"
-              )
-
+              text=text.replace('</resources>','  <string name="admob_app_id">ca-app-pub-3940256099942544~3347511713</string>\n</resources>')
           strings.write_text(text)
 
-          # ------------------------------------------------------------
-          # Android Manifest
-          # ------------------------------------------------------------
-
-          manifest = Path(
-              "android/app/src/main/AndroidManifest.xml"
-          )
-
-          m = manifest.read_text()
-
-          meta = (
-              '<meta-data '
-              'android:name="com.google.android.gms.ads.APPLICATION_ID" '
-              'android:value="@string/admob_app_id" />'
-          )
-
-          if "com.google.android.gms.ads.APPLICATION_ID" not in m:
-              m = m.replace(
-                  "</application>",
-                  f"    {meta}\n    </application>"
-              )
-
+          manifest=Path('android/app/src/main/AndroidManifest.xml')
+          m=manifest.read_text()
+          meta='<meta-data android:name="com.google.android.gms.ads.APPLICATION_ID" android:value="@string/admob_app_id" />'
+          if 'com.google.android.gms.ads.APPLICATION_ID' not in m:
+              m=m.replace('</application>', f'    {meta}\\n    </application>')
           manifest.write_text(m)
 
-          # ------------------------------------------------------------
-          # V15 Native System Bar / Safe Area Fix
-          #
-          # IMPORTANT:
-          # Status bar remains a separate WHITE area.
-          # Web content receives exact top/bottom insets.
-          # Header can stay fixed below the status bar.
-          # ------------------------------------------------------------
-
-          main = Path(
-              "android/app/src/main/java/"
-              "com/marathibrainchallenge/app/MainActivity.java"
-          )
-
-          main.parent.mkdir(parents=True, exist_ok=True)
-
+          # Replace MainActivity with robust WindowInsets handling.
+          main=Path('android/app/src/main/java/com/marathibrainchallenge/app/MainActivity.java')
+          main.parent.mkdir(parents=True,exist_ok=True)
           main.write_text(r'''package com.marathibrainchallenge.app;
 
-          import android.graphics.Color;
           import android.os.Bundle;
-          import android.view.Window;
           import android.webkit.WebView;
 
           import androidx.core.graphics.Insets;
@@ -234,318 +149,53 @@ jobs:
           import com.getcapacitor.BridgeActivity;
 
           public class MainActivity extends BridgeActivity {
-
             @Override
             public void onCreate(Bundle savedInstanceState) {
               super.onCreate(savedInstanceState);
 
-              Window window = getWindow();
-
-              /*
-               * Android 15+ edge-to-edge compatibility.
-               */
-              WindowCompat.setDecorFitsSystemWindows(window, false);
-
-              /*
-               * WHITE Android Status Bar.
-               */
-              window.setStatusBarColor(Color.WHITE);
-
-              /*
-               * WHITE Android Navigation Bar.
-               */
-              window.setNavigationBarColor(Color.WHITE);
-
-              /*
-               * Dark icons on white system bars.
-               */
-              WindowCompat
-                .getInsetsController(
-                  window,
-                  window.getDecorView()
-                )
-                .setAppearanceLightStatusBars(true);
-
-              WindowCompat
-                .getInsetsController(
-                  window,
-                  window.getDecorView()
-                )
-                .setAppearanceLightNavigationBars(true);
-
-              /*
-               * Remove Android navigation bar contrast scrim.
-               */
-              window.setNavigationBarContrastEnforced(false);
+              WindowCompat.setDecorFitsSystemWindows(getWindow(), false);
+              getWindow().setStatusBarColor(android.graphics.Color.WHITE);
+              getWindow().setNavigationBarColor(android.graphics.Color.WHITE);
+              WindowCompat.getInsetsController(getWindow(), getWindow().getDecorView()).setAppearanceLightStatusBars(true);
+              WindowCompat.getInsetsController(getWindow(), getWindow().getDecorView()).setAppearanceLightNavigationBars(true);
+              getWindow().setNavigationBarContrastEnforced(false);
 
               WebView webView = getBridge().getWebView();
-
-              /*
-               * Send REAL Android system-bar dimensions
-               * to the web application.
-               */
-              ViewCompat.setOnApplyWindowInsetsListener(
-                webView,
-                (view, insets) -> {
-
-                  Insets bars = insets.getInsets(
-                    WindowInsetsCompat.Type.systemBars()
-                    | WindowInsetsCompat.Type.displayCutout()
-                  );
-
-                  String js =
-                    "document.documentElement.style.setProperty(" +
-                    "'--safe-top','" + bars.top + "px');" +
-
-                    "document.documentElement.style.setProperty(" +
-                    "'--safe-bottom','" + bars.bottom + "px');" +
-
-                    "document.documentElement.style.setProperty(" +
-                    "'--safe-left','" + bars.left + "px');" +
-
-                    "document.documentElement.style.setProperty(" +
-                    "'--safe-right','" + bars.right + "px');" +
-
-                    /*
-                     * Extra flags used by V15 CSS.
-                     */
-                    "document.documentElement.classList.add(" +
-                    "'native-safe-area-ready');";
-
-                  webView.evaluateJavascript(js, null);
-
-                  return insets;
-                }
-              );
-
-              /*
-               * Force first inset calculation.
-               */
+              ViewCompat.setOnApplyWindowInsetsListener(webView, (view, insets) -> {
+                Insets bars = insets.getInsets(WindowInsetsCompat.Type.systemBars() | WindowInsetsCompat.Type.displayCutout());
+                float density = getResources().getDisplayMetrics().density;
+                int top = Math.round(bars.top / density);
+                int bottom = Math.round(bars.bottom / density);
+                int left = Math.round(bars.left / density);
+                int right = Math.round(bars.right / density);
+                String js = "document.documentElement.style.setProperty('--safe-top','" + top + "px');"
+                    + "document.documentElement.style.setProperty('--safe-bottom','" + bottom + "px');"
+                    + "document.documentElement.style.setProperty('--safe-left','" + left + "px');"
+                    + "document.documentElement.style.setProperty('--safe-right','" + right + "px');";
+                webView.evaluateJavascript(js, null);
+                return insets;
+              });
               ViewCompat.requestApplyInsets(webView);
             }
           }
           ''')
-
           PY
-
-      - name: Add V15 CSS safety layer
-        run: |
-          cat >> www/style.css <<'EOF'
-
-          /* ============================================================
-             V15 — ANDROID STATUS BAR SAFE HEADER
-             ============================================================ */
-
-          :root {
-            --safe-top: 0px;
-            --safe-bottom: 0px;
-            --safe-left: 0px;
-            --safe-right: 0px;
-            --app-header-height: 72px;
-          }
-
-          html,
-          body {
-            background: #f4f6f9;
-            margin: 0;
-            min-height: 100%;
-          }
-
-          /*
-           * The whole page starts BELOW Android Status Bar.
-           * This prevents hero/content from appearing above the header.
-           */
-          body {
-            padding-top: var(--safe-top);
-            padding-bottom: var(--safe-bottom);
-            padding-left: var(--safe-left);
-            padding-right: var(--safe-right);
-            box-sizing: border-box;
-          }
-
-          /*
-           * Fixed App Header.
-           *
-           * It starts exactly below Android Status Bar.
-           */
-          header {
-            position: fixed !important;
-            top: var(--safe-top) !important;
-            left: var(--safe-left) !important;
-            right: var(--safe-right) !important;
-
-            z-index: 9999 !important;
-
-            width: auto !important;
-            box-sizing: border-box;
-
-            background: #ffffff !important;
-
-            border-bottom: 1px solid #e1e5eb;
-
-            box-shadow:
-              0 2px 10px rgba(31, 48, 72, 0.08);
-
-            margin: 0 !important;
-
-            padding-top: 8px !important;
-            padding-bottom: 8px !important;
-
-            min-height: var(--app-header-height);
-          }
-
-          /*
-           * Content must begin BELOW fixed Header.
-           */
-          main,
-          .screen {
-            padding-top:
-              calc(
-                var(--app-header-height) +
-                var(--safe-top) +
-                12px
-              ) !important;
-
-            padding-bottom:
-              calc(
-                24px +
-                var(--safe-bottom)
-              ) !important;
-          }
-
-          /*
-           * Any hero/content element must never cover
-           * the Android Status Bar.
-           */
-          .hero,
-          .hero-card,
-          .home-hero,
-          .content,
-          .page-content {
-            position: relative;
-          }
-
-          /*
-           * Make sure modal/overlay content also respects
-           * the Android system areas.
-           */
-          .modal,
-          .drawer,
-          .overlay {
-            padding-top: var(--safe-top);
-            padding-bottom: var(--safe-bottom);
-          }
-
-          /*
-           * Last card/button stays above Android Navigation Bar.
-           */
-          main > :last-child,
-          .screen > :last-child {
-            margin-bottom:
-              calc(24px + var(--safe-bottom));
-          }
-
-          /* ============================================================
-             V15 — NO APP BOTTOM NAVIGATION BAR
-             ============================================================ */
-
-          .app-bottom-bar,
-          #app-bottom-bar,
-          .bottom-nav,
-          .mobile-bottom-nav {
-            display: none !important;
-            visibility: hidden !important;
-            height: 0 !important;
-            min-height: 0 !important;
-            max-height: 0 !important;
-            overflow: hidden !important;
-          }
-
-          /* ============================================================
-             V15 — CLEAN WHITE STATUS AREA
-             ============================================================ */
-
-          body::before {
-            content: "";
-            position: fixed;
-
-            top: 0;
-            left: 0;
-            right: 0;
-
-            height: var(--safe-top);
-
-            background: #ffffff;
-
-            z-index: 10000;
-
-            pointer-events: none;
-          }
-
-          /*
-           * Prevent horizontal overflow caused by safe areas.
-           */
-          html,
-          body {
-            overflow-x: hidden;
-          }
-
-          @media (max-width: 420px) {
-
-            :root {
-              --app-header-height: 70px;
-            }
-
-            header {
-              padding-top: 7px !important;
-              padding-bottom: 7px !important;
-            }
-
-            main,
-            .screen {
-              padding-top:
-                calc(
-                  var(--app-header-height) +
-                  var(--safe-top) +
-                  10px
-                ) !important;
-            }
-          }
-
-          EOF
 
       - name: Sync Capacitor plugins
         run: npx cap sync android
 
-      - name: Verify V15 native setup
+      - name: Verify native setup
         run: |
-          echo "===== AdMob App ID ====="
-          grep -R "admob_app_id" \
-            -n android/app/src/main/res/values/strings.xml
-
-          echo "===== AdMob Manifest ====="
-          grep -R "com.google.android.gms.ads.APPLICATION_ID" \
-            -n android/app/src/main/AndroidManifest.xml
-
-          echo "===== WindowInsets ====="
-          grep -R "setOnApplyWindowInsetsListener" \
-            -n android/app/src/main/java/com/marathibrainchallenge/app/MainActivity.java
-
-          echo "===== Safe Area CSS ====="
-          grep -R -- "--safe-top" www/style.css
-
-          echo "===== Fixed Header ====="
-          grep -R "position: fixed" www/style.css
-
-          echo "===== Bottom App Nav Disabled ====="
-          grep -R "app-bottom-bar" www/style.css
+          grep -R "admob_app_id" -n android/app/src/main/res/values/strings.xml
+          grep -R "com.google.android.gms.ads.APPLICATION_ID" -n android/app/src/main/AndroidManifest.xml
+          grep -R "setOnApplyWindowInsetsListener" -n android/app/src/main/java/com/marathibrainchallenge/app/MainActivity.java
 
       - name: Build APK
         working-directory: android
         run: ./gradlew assembleDebug
 
-      - name: Upload V15 APK
+      - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
-          name: Marathi-Brain-Challenge-APK-V15
+          name: Marathi-Brain-Challenge-APK-V16
           path: android/app/build/outputs/apk/debug/app-debug.apk
