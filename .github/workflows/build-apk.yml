@@ -1,4 +1,4 @@
-name: Build Marathi Brain Challenge APK
+name: Build Marathi Brain Challenge APK V10
 
 on:
   workflow_dispatch:
@@ -14,9 +14,9 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Extract V9 wrapper ZIP
+      - name: Extract V10 wrapper ZIP
         run: |
-          unzip -q marathi_brain_challenge_one_upload_apk_builder_v9.zip -d wrapper
+          unzip -q marathi_brain_challenge_one_upload_apk_builder_v10.zip -d wrapper
           V2ZIP=$(find wrapper -name "v2-project.zip" -type f | head -1)
           if [ -z "$V2ZIP" ]; then
             echo "V2 project ZIP not found"
@@ -133,35 +133,33 @@ jobs:
               m=m.replace('</application>', f'    {meta}\\n    </application>')
           manifest.write_text(m)
 
-          # Replace MainActivity with an inset-safe activity. This prevents the WebView
-          # from covering the Android status/navigation bars on Android 15+ edge-to-edge.
+          # Replace MainActivity with robust WindowInsets handling.
           main=Path('android/app/src/main/java/com/marathibrainchallenge/app/MainActivity.java')
           main.parent.mkdir(parents=True,exist_ok=True)
           main.write_text(r'''package com.marathibrainchallenge.app;
-          
+
           import android.os.Bundle;
-          import android.view.View;
           import android.webkit.WebView;
-          
+
           import androidx.core.graphics.Insets;
           import androidx.core.view.ViewCompat;
           import androidx.core.view.WindowCompat;
           import androidx.core.view.WindowInsetsCompat;
-          
+
           import com.getcapacitor.BridgeActivity;
-          
+
           public class MainActivity extends BridgeActivity {
             @Override
             public void onCreate(Bundle savedInstanceState) {
               super.onCreate(savedInstanceState);
-          
-              WindowCompat.enableEdgeToEdge(getWindow());
-              WindowCompat.getInsetsController(getWindow(), getWindow().getDecorView()).setAppearanceLightStatusBars(true);
+
+              WindowCompat.setDecorFitsSystemWindows(getWindow(), false);
+              WindowCompat.getInsetsController(getWindow(), getWindow().getDecorView()).setAppearanceLightStatusBars(false);
               WindowCompat.getInsetsController(getWindow(), getWindow().getDecorView()).setAppearanceLightNavigationBars(true);
               getWindow().setNavigationBarContrastEnforced(false);
-          
+
               WebView webView = getBridge().getWebView();
-              ViewCompat.setOnApplyWindowInsetsListener(webView, (View v, WindowInsetsCompat insets) -> {
+              ViewCompat.setOnApplyWindowInsetsListener(webView, (view, insets) -> {
                 Insets bars = insets.getInsets(WindowInsetsCompat.Type.systemBars() | WindowInsetsCompat.Type.displayCutout());
                 String js = "document.documentElement.style.setProperty('--safe-top','" + bars.top + "px');"
                     + "document.documentElement.style.setProperty('--safe-bottom','" + bars.bottom + "px');"
@@ -192,5 +190,5 @@ jobs:
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
-          name: Marathi-Brain-Challenge-APK-V9
+          name: Marathi-Brain-Challenge-APK-V10
           path: android/app/build/outputs/apk/debug/app-debug.apk
