@@ -13,57 +13,22 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Extract V17 wrapper ZIP
+      - name: Verify project layout
         run: |
-          unzip -q marathi_brain_challenge_fixed_v17.zip -d wrapper
-          V2ZIP=$(find wrapper -name "v2-project.zip" -type f | head -1)
-          test -n "$V2ZIP" || { echo "v2-project.zip not found"; exit 1; }
-          unzip -q "$V2ZIP" -d project
-
-      - name: Find V17 project
-        run: |
-          PROJECT_DIR=$(find project -type d -name player -print -quit | xargs -r dirname)
-          test -n "$PROJECT_DIR" || { echo "player folder not found"; exit 1; }
-          echo "PROJECT_DIR=$PROJECT_DIR" >> "$GITHUB_ENV"
+          test -d player || { echo "player/ folder not found at repo root"; exit 1; }
+          test -d assets || { echo "assets/ folder not found at repo root"; exit 1; }
 
       - name: Prepare web + Capacitor project
         run: |
           mkdir -p www
-          cp -r "$PROJECT_DIR/player/"* www/
-          cp -r "$PROJECT_DIR/assets" .
-          cat > package.json <<'JSON'
-          {
-            "name": "marathi-brain-challenge-v17",
-            "version": "17.0.0",
-            "private": true,
-            "dependencies": {
-              "@capacitor/android": "^8.0.0",
-              "@capacitor/app": "^8.0.0",
-              "@capacitor/core": "^8.0.0",
-              "@capacitor/status-bar": "^8.0.0",
-              "@capacitor-community/admob": "^8.0.0"
-            },
-            "devDependencies": {
-              "@capacitor/assets": "^3.0.5",
-              "@capacitor/cli": "^8.0.0",
-              "typescript": "^5.0.0"
-            }
-          }
-          JSON
-          cat > capacitor.config.ts <<'TS'
-          import type { CapacitorConfig } from '@capacitor/cli';
-          const config: CapacitorConfig = {
-            appId: 'com.marathibrainchallenge.app',
-            appName: 'मराठी बुद्धीचाचणी',
-            webDir: 'www'
-          };
-          export default config;
-          TS
+          cp -r player/* www/
+          echo ewogICJuYW1lIjogIm1hcmF0aGktYnJhaW4tY2hhbGxlbmdlLXYxNyIsCiAgInZlcnNpb24iOiAiMTcuMC4wIiwKICAicHJpdmF0ZSI6IHRydWUsCiAgImRlcGVuZGVuY2llcyI6IHsKICAgICJAY2FwYWNpdG9yL2FuZHJvaWQiOiAiXjguMC4wIiwKICAgICJAY2FwYWNpdG9yL2FwcCI6ICJeOC4wLjAiLAogICAgIkBjYXBhY2l0b3IvY29yZSI6ICJeOC4wLjAiLAogICAgIkBjYXBhY2l0b3Ivc3RhdHVzLWJhciI6ICJeOC4wLjAiLAogICAgIkBjYXBhY2l0b3ItY29tbXVuaXR5L2FkbW9iIjogIl44LjAuMCIKICB9LAogICJkZXZEZXBlbmRlbmNpZXMiOiB7CiAgICAiQGNhcGFjaXRvci9hc3NldHMiOiAiXjMuMC41IiwKICAgICJAY2FwYWNpdG9yL2NsaSI6ICJeOC4wLjAiLAogICAgInR5cGVzY3JpcHQiOiAiXjUuMC4wIgogIH0KfQo= | base64 -d > package.json
+          echo aW1wb3J0IHR5cGUgeyBDYXBhY2l0b3JDb25maWcgfSBmcm9tICdAY2FwYWNpdG9yL2NsaSc7CmNvbnN0IGNvbmZpZzogQ2FwYWNpdG9yQ29uZmlnID0gewogIGFwcElkOiAnY29tLm1hcmF0aGlicmFpbmNoYWxsZW5nZS5hcHAnLAogIGFwcE5hbWU6ICfgpK7gpLDgpL7gpKDgpYAg4KSs4KWB4KSm4KWN4KSn4KWA4KSa4KS+4KSa4KSj4KWAJywKICB3ZWJEaXI6ICd3d3cnCn07CmV4cG9ydCBkZWZhdWx0IGNvbmZpZzsK | base64 -d > capacitor.config.ts
 
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: 22
+          node-version: 20
 
       - name: Setup Java
         uses: actions/setup-java@v4
@@ -80,72 +45,15 @@ jobs:
       - name: Generate Android assets
         run: npx @capacitor/assets generate --android --assetPath assets --iconBackgroundColor '#1D2942' --iconBackgroundColorDark '#152238' --splashBackgroundColor '#F4F6F9' --splashBackgroundColorDark '#1D2942'
 
-      - name: Configure Android SDK and native system bars
+      - name: Configure Android SDK versions and AdMob ID
         run: |
-          python3 - <<'PY'
-          from pathlib import Path
-          import re
-          for p in [Path('android/variables.gradle'),Path('android/app/build.gradle'),Path('android/app/build.gradle.kts')]:
-              if not p.exists(): continue
-              s=p.read_text()
-              for pat,repl in [
-                  (r'(minSdkVersion\s*[=:]\s*)\d+', r'\g<1>24'),
-                  (r'(targetSdkVersion\s*[=:]\s*)\d+', r'\g<1>36'),
-                  (r'(compileSdkVersion\s*[=:]\s*)\d+', r'\g<1>36'),
-                  (r'(minSdk\s*[=:]\s*)\d+', r'\g<1>24'),
-                  (r'(targetSdk\s*[=:]\s*)\d+', r'\g<1>36'),
-                  (r'(compileSdk\s*[=:]\s*)\d+', r'\g<1>36')]:
-                  s=re.sub(pat,repl,s)
-              p.write_text(s)
-          strings=Path('android/app/src/main/res/values/strings.xml')
-          strings.parent.mkdir(parents=True,exist_ok=True)
-          text=strings.read_text() if strings.exists() else '<resources>\n</resources>\n'
-          if 'name="admob_app_id"' in text:
-              text=re.sub(r'<string name="admob_app_id">.*?</string>', '<string name="admob_app_id">ca-app-pub-3940256099942544~3347511713</string>', text)
-          else:
-              text=text.replace('</resources>','  <string name="admob_app_id">ca-app-pub-3940256099942544~3347511713</string>\n</resources>')
-          strings.write_text(text)
-          manifest=Path('android/app/src/main/AndroidManifest.xml')
-          m=manifest.read_text()
-          meta='<meta-data android:name="com.google.android.gms.ads.APPLICATION_ID" android:value="@string/admob_app_id" />'
-          if 'com.google.android.gms.ads.APPLICATION_ID' not in m: m=m.replace('</application>', f'    {meta}\n    </application>')
-          manifest.write_text(m)
-          main=Path('android/app/src/main/java/com/marathibrainchallenge/app/MainActivity.java')
-          main.parent.mkdir(parents=True,exist_ok=True)
-          main.write_text(r'''package com.marathibrainchallenge.app;
+          echo ZnJvbSBwYXRobGliIGltcG9ydCBQYXRoCmltcG9ydCByZQoKIyBCdW1wIFNESyB2ZXJzaW9ucyBpbiB3aGljaGV2ZXIgZ3JhZGxlIGZpbGUgQ2FwYWNpdG9yIGdlbmVyYXRlZApmb3IgcCBpbiBbUGF0aCgnYW5kcm9pZC92YXJpYWJsZXMuZ3JhZGxlJyksIFBhdGgoJ2FuZHJvaWQvYXBwL2J1aWxkLmdyYWRsZScpLCBQYXRoKCdhbmRyb2lkL2FwcC9idWlsZC5ncmFkbGUua3RzJyldOgogICAgaWYgbm90IHAuZXhpc3RzKCk6CiAgICAgICAgY29udGludWUKICAgIHMgPSBwLnJlYWRfdGV4dCgpCiAgICBmb3IgcGF0LCByZXBsIGluIFsKICAgICAgICAocicobWluU2RrVmVyc2lvblxzKls9Ol1ccyopXGQrJywgcidcZzwxPjI0JyksCiAgICAgICAgKHInKHRhcmdldFNka1ZlcnNpb25ccypbPTpdXHMqKVxkKycsIHInXGc8MT4zNicpLAogICAgICAgIChyJyhjb21waWxlU2RrVmVyc2lvblxzKls9Ol1ccyopXGQrJywgcidcZzwxPjM2JyksCiAgICAgICAgKHInKG1pblNka1xzKls9Ol1ccyopXGQrJywgcidcZzwxPjI0JyksCiAgICAgICAgKHInKHRhcmdldFNka1xzKls9Ol1ccyopXGQrJywgcidcZzwxPjM2JyksCiAgICAgICAgKHInKGNvbXBpbGVTZGtccypbPTpdXHMqKVxkKycsIHInXGc8MT4zNicpLAogICAgXToKICAgICAgICBzID0gcmUuc3ViKHBhdCwgcmVwbCwgcykKICAgIHAud3JpdGVfdGV4dChzKQoKIyBTZXQgdGhlIEFkTW9iIHRlc3QgYXBwbGljYXRpb24gSUQgaW4gc3RyaW5ncy54bWwKc3RyaW5ncyA9IFBhdGgoJ2FuZHJvaWQvYXBwL3NyYy9tYWluL3Jlcy92YWx1ZXMvc3RyaW5ncy54bWwnKQpzdHJpbmdzLnBhcmVudC5ta2RpcihwYXJlbnRzPVRydWUsIGV4aXN0X29rPVRydWUpCnRleHQgPSBzdHJpbmdzLnJlYWRfdGV4dCgpIGlmIHN0cmluZ3MuZXhpc3RzKCkgZWxzZSAnPHJlc291cmNlcz5cbjwvcmVzb3VyY2VzPlxuJwphZG1vYl9saW5lID0gJzxzdHJpbmcgbmFtZT0iYWRtb2JfYXBwX2lkIj5jYS1hcHAtcHViLTM5NDAyNTYwOTk5NDI1NDR+MzM0NzUxMTcxMzwvc3RyaW5nPicKaWYgJ25hbWU9ImFkbW9iX2FwcF9pZCInIGluIHRleHQ6CiAgICB0ZXh0ID0gcmUuc3ViKHInPHN0cmluZyBuYW1lPSJhZG1vYl9hcHBfaWQiPi4qPzwvc3RyaW5nPicsIGFkbW9iX2xpbmUsIHRleHQpCmVsc2U6CiAgICB0ZXh0ID0gdGV4dC5yZXBsYWNlKCc8L3Jlc291cmNlcz4nLCAnICAnICsgYWRtb2JfbGluZSArICdcbjwvcmVzb3VyY2VzPicpCnN0cmluZ3Mud3JpdGVfdGV4dCh0ZXh0KQoKIyBSZWdpc3RlciB0aGUgQWRNb2IgQXBwbGljYXRpb24gSUQgbWV0YS1kYXRhIGluIEFuZHJvaWRNYW5pZmVzdC54bWwKbWFuaWZlc3QgPSBQYXRoKCdhbmRyb2lkL2FwcC9zcmMvbWFpbi9BbmRyb2lkTWFuaWZlc3QueG1sJykKbSA9IG1hbmlmZXN0LnJlYWRfdGV4dCgpCm1ldGEgPSAnPG1ldGEtZGF0YSBhbmRyb2lkOm5hbWU9ImNvbS5nb29nbGUuYW5kcm9pZC5nbXMuYWRzLkFQUExJQ0FUSU9OX0lEIiBhbmRyb2lkOnZhbHVlPSJAc3RyaW5nL2FkbW9iX2FwcF9pZCIgLz4nCmlmICdjb20uZ29vZ2xlLmFuZHJvaWQuZ21zLmFkcy5BUFBMSUNBVElPTl9JRCcgbm90IGluIG06CiAgICBtID0gbS5yZXBsYWNlKCc8L2FwcGxpY2F0aW9uPicsICcgICAgJyArIG1ldGEgKyAnXG4gICAgPC9hcHBsaWNhdGlvbj4nKQptYW5pZmVzdC53cml0ZV90ZXh0KG0pCg== | base64 -d > /tmp/configure_sdk.py
+          python3 /tmp/configure_sdk.py
 
-import android.os.Bundle;
-import android.webkit.WebView;
-import androidx.core.graphics.Insets;
-import androidx.core.view.ViewCompat;
-import androidx.core.view.WindowCompat;
-import androidx.core.view.WindowInsetsCompat;
-import com.getcapacitor.BridgeActivity;
-
-public class MainActivity extends BridgeActivity {
-  @Override public void onCreate(Bundle savedInstanceState) {
-    super.onCreate(savedInstanceState);
-    WindowCompat.setDecorFitsSystemWindows(getWindow(), false);
-    getWindow().setStatusBarColor(android.graphics.Color.WHITE);
-    getWindow().setNavigationBarColor(android.graphics.Color.WHITE);
-    WindowCompat.getInsetsController(getWindow(), getWindow().getDecorView()).setAppearanceLightStatusBars(true);
-    WindowCompat.getInsetsController(getWindow(), getWindow().getDecorView()).setAppearanceLightNavigationBars(true);
-    getWindow().setNavigationBarContrastEnforced(false);
-    WebView webView=getBridge().getWebView();
-    ViewCompat.setOnApplyWindowInsetsListener(webView,(view,insets)->{
-      Insets bars=insets.getInsets(WindowInsetsCompat.Type.systemBars()|WindowInsetsCompat.Type.displayCutout());
-      float d=getResources().getDisplayMetrics().density;
-      String js="document.documentElement.style.setProperty('--safe-top','"+Math.round(bars.top/d)+"px');"+
-        "document.documentElement.style.setProperty('--safe-bottom','"+Math.round(bars.bottom/d)+"px');"+
-        "document.documentElement.style.setProperty('--safe-left','"+Math.round(bars.left/d)+"px');"+
-        "document.documentElement.style.setProperty('--safe-right','"+Math.round(bars.right/d)+"px');";
-      webView.evaluateJavascript(js,null); return insets;
-    });
-    ViewCompat.requestApplyInsets(webView);
-  }
-}
-''')
-          PY
+      - name: Write MainActivity.java
+        run: |
+          mkdir -p android/app/src/main/java/com/marathibrainchallenge/app
+          echo cGFja2FnZSBjb20ubWFyYXRoaWJyYWluY2hhbGxlbmdlLmFwcDsKCmltcG9ydCBhbmRyb2lkLm9zLkJ1bmRsZTsKaW1wb3J0IGFuZHJvaWQud2Via2l0LldlYlZpZXc7CmltcG9ydCBhbmRyb2lkeC5jb3JlLmdyYXBoaWNzLkluc2V0czsKaW1wb3J0IGFuZHJvaWR4LmNvcmUudmlldy5WaWV3Q29tcGF0OwppbXBvcnQgYW5kcm9pZHguY29yZS52aWV3LldpbmRvd0NvbXBhdDsKaW1wb3J0IGFuZHJvaWR4LmNvcmUudmlldy5XaW5kb3dJbnNldHNDb21wYXQ7CmltcG9ydCBjb20uZ2V0Y2FwYWNpdG9yLkJyaWRnZUFjdGl2aXR5OwoKcHVibGljIGNsYXNzIE1haW5BY3Rpdml0eSBleHRlbmRzIEJyaWRnZUFjdGl2aXR5IHsKICBAT3ZlcnJpZGUgcHVibGljIHZvaWQgb25DcmVhdGUoQnVuZGxlIHNhdmVkSW5zdGFuY2VTdGF0ZSkgewogICAgc3VwZXIub25DcmVhdGUoc2F2ZWRJbnN0YW5jZVN0YXRlKTsKICAgIFdpbmRvd0NvbXBhdC5zZXREZWNvckZpdHNTeXN0ZW1XaW5kb3dzKGdldFdpbmRvdygpLCBmYWxzZSk7CiAgICBnZXRXaW5kb3coKS5zZXRTdGF0dXNCYXJDb2xvcihhbmRyb2lkLmdyYXBoaWNzLkNvbG9yLldISVRFKTsKICAgIGdldFdpbmRvdygpLnNldE5hdmlnYXRpb25CYXJDb2xvcihhbmRyb2lkLmdyYXBoaWNzLkNvbG9yLldISVRFKTsKICAgIFdpbmRvd0NvbXBhdC5nZXRJbnNldHNDb250cm9sbGVyKGdldFdpbmRvdygpLCBnZXRXaW5kb3coKS5nZXREZWNvclZpZXcoKSkuc2V0QXBwZWFyYW5jZUxpZ2h0U3RhdHVzQmFycyh0cnVlKTsKICAgIFdpbmRvd0NvbXBhdC5nZXRJbnNldHNDb250cm9sbGVyKGdldFdpbmRvdygpLCBnZXRXaW5kb3coKS5nZXREZWNvclZpZXcoKSkuc2V0QXBwZWFyYW5jZUxpZ2h0TmF2aWdhdGlvbkJhcnModHJ1ZSk7CiAgICBnZXRXaW5kb3coKS5zZXROYXZpZ2F0aW9uQmFyQ29udHJhc3RFbmZvcmNlZChmYWxzZSk7CiAgICBXZWJWaWV3IHdlYlZpZXc9Z2V0QnJpZGdlKCkuZ2V0V2ViVmlldygpOwogICAgVmlld0NvbXBhdC5zZXRPbkFwcGx5V2luZG93SW5zZXRzTGlzdGVuZXIod2ViVmlldywodmlldyxpbnNldHMpLT57CiAgICAgIEluc2V0cyBiYXJzPWluc2V0cy5nZXRJbnNldHMoV2luZG93SW5zZXRzQ29tcGF0LlR5cGUuc3lzdGVtQmFycygpfFdpbmRvd0luc2V0c0NvbXBhdC5UeXBlLmRpc3BsYXlDdXRvdXQoKSk7CiAgICAgIGZsb2F0IGQ9Z2V0UmVzb3VyY2VzKCkuZ2V0RGlzcGxheU1ldHJpY3MoKS5kZW5zaXR5OwogICAgICBTdHJpbmcganM9ImRvY3VtZW50LmRvY3VtZW50RWxlbWVudC5zdHlsZS5zZXRQcm9wZXJ0eSgnLS1zYWZlLXRvcCcsJyIrTWF0aC5yb3VuZChiYXJzLnRvcC9kKSsicHgnKTsiKwogICAgICAgICJkb2N1bWVudC5kb2N1bWVudEVsZW1lbnQuc3R5bGUuc2V0UHJvcGVydHkoJy0tc2FmZS1ib3R0b20nLCciK01hdGgucm91bmQoYmFycy5ib3R0b20vZCkrInB4Jyk7IisKICAgICAgICAiZG9jdW1lbnQuZG9jdW1lbnRFbGVtZW50LnN0eWxlLnNldFByb3BlcnR5KCctLXNhZmUtbGVmdCcsJyIrTWF0aC5yb3VuZChiYXJzLmxlZnQvZCkrInB4Jyk7IisKICAgICAgICAiZG9jdW1lbnQuZG9jdW1lbnRFbGVtZW50LnN0eWxlLnNldFByb3BlcnR5KCctLXNhZmUtcmlnaHQnLCciK01hdGgucm91bmQoYmFycy5yaWdodC9kKSsicHgnKTsiOwogICAgICB3ZWJWaWV3LmV2YWx1YXRlSmF2YXNjcmlwdChqcyxudWxsKTsgcmV0dXJuIGluc2V0czsKICAgIH0pOwogICAgVmlld0NvbXBhdC5yZXF1ZXN0QXBwbHlJbnNldHMod2ViVmlldyk7CiAgfQp9Cg== | base64 -d > android/app/src/main/java/com/marathibrainchallenge/app/MainActivity.java
 
       - name: Sync Capacitor plugins
         run: npx cap sync android
