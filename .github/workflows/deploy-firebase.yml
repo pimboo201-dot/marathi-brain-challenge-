@@ -106,13 +106,15 @@ jobs:
           set -euo pipefail
           CONFIG="$FIREBASE_ROOT/player/firebase-config.js"
           if [ -f "$CONFIG" ]; then
-            CLIENT_ID="$(grep -oE 'projectId:[[:space:]]*["'"'][^"'"']+["'"']' "$CONFIG" | head -1 | sed -E 's/.*["'"']([^"'"']+)["'"'].*/\1/' || true)"
+            CLIENT_ID="$(node -e 'const fs=require("fs"); const t=fs.readFileSync(process.argv[1],"utf8"); const m=t.match(/\bprojectId\s*:\s*["\\']([^"\\']+)["\\']/); process.stdout.write(m ? m[1] : "");' "$CONFIG")"
             if [ -n "$CLIENT_ID" ] && [ "$CLIENT_ID" != "$FIREBASE_PROJECT_ID" ]; then
               echo "ERROR: Firebase project mismatch."
               echo "Service-account project_id: $FIREBASE_PROJECT_ID"
               echo "Client firebase-config projectId: $CLIENT_ID"
               exit 1
             fi
+          else
+            echo "Warning: player/firebase-config.js not found; skipping client project ID comparison."
           fi
 
       - name: Setup Node.js
