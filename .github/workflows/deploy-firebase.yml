@@ -17,34 +17,14 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Locate and extract V17 project
+      - name: Verify project layout
         shell: bash
         run: |
           set -euo pipefail
-          rm -rf deploy
-          mkdir -p deploy
-
-          if [ -f "marathi_brain_challenge_fixed_v17.zip" ]; then
-            unzip -q -o "marathi_brain_challenge_fixed_v17.zip" -d deploy/outer
-          elif [ -f "v2-project.zip" ]; then
-            mkdir -p deploy/outer
-            cp v2-project.zip deploy/outer/
-          else
-            echo "ERROR: Upload marathi_brain_challenge_fixed_v17.zip (or v2-project.zip) to the repository root."
-            exit 1
-          fi
-
-          if [ -f deploy/outer/v2-project.zip ]; then
-            unzip -q -o deploy/outer/v2-project.zip -d deploy/project
-          else
-            echo "ERROR: v2-project.zip was not found inside the uploaded V17 package."
-            exit 1
-          fi
-
-          test -f deploy/project/firebase/functions/index.js
-          test -f deploy/project/firebase/firestore.rules
-          test -f deploy/project/firebase/functions/package.json
-          test -f deploy/project/firebase.json
+          test -f firebase/functions/index.js
+          test -f firebase/firestore.rules
+          test -f firebase/functions/package.json
+          test -f firebase.json
 
       - name: Validate required GitHub secrets
         shell: bash
@@ -77,17 +57,15 @@ jobs:
         run: npm install --global firebase-tools
 
       - name: Install Cloud Functions dependencies
-        working-directory: deploy/project/firebase/functions
+        working-directory: firebase/functions
         run: npm ci
 
       - name: Configure Firebase project
-        working-directory: deploy/project
         run: |
           printf '{"projects":{"default":"%s"}}\n' "$FIREBASE_PROJECT_ID" > .firebaserc
           cat .firebaserc
 
       - name: Deploy Firestore rules and Cloud Functions
-        working-directory: deploy/project
         run: |
           firebase deploy --project "$FIREBASE_PROJECT_ID" --only firestore:rules,functions --non-interactive
 
