@@ -1,4 +1,4 @@
-name: Build Marathi Brain Challenge APK V11 V10
+name: Build Marathi Brain Challenge APK V12
 
 on:
   workflow_dispatch:
@@ -14,9 +14,9 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Extract V10 wrapper ZIP
+      - name: Extract V12 wrapper ZIP
         run: |
-          unzip -q marathi_brain_challenge_one_upload_apk_builder_v11.zip -d wrapper
+          unzip -q marathi_brain_challenge_one_upload_apk_builder_v12.zip -d wrapper
           V2ZIP=$(find wrapper -name "v2-project.zip" -type f | head -1)
           if [ -z "$V2ZIP" ]; then
             echo "V2 project ZIP not found"
@@ -190,5 +190,5 @@ jobs:
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
-          name: Marathi-Brain-Challenge-APK-V11
+          name: Marathi-Brain-Challenge-APK-V12
           path: android/app/build/outputs/apk/debug/app-debug.apk
