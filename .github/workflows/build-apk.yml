@@ -16,7 +16,7 @@ jobs:
 
       - name: Extract uploaded wrapper ZIP
         run: |
-          unzip -q marathi_brain_challenge_one_upload_apk_builder.zip -d wrapper
+          unzip -q marathi_brain_challenge_one_upload_apk_builder_v8.zip -d wrapper
           V2ZIP=$(find wrapper -name "v2-project.zip" -type f | head -1)
           if [ -z "$V2ZIP" ]; then
             echo "V2 project ZIP not found"
