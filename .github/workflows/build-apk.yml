@@ -1,4 +1,4 @@
-name: Build Marathi Brain Challenge APK V10
+name: Build Marathi Brain Challenge APK V11 V10
 
 on:
   workflow_dispatch:
@@ -16,7 +16,7 @@ jobs:
 
       - name: Extract V10 wrapper ZIP
         run: |
-          unzip -q marathi_brain_challenge_one_upload_apk_builder_v10.zip -d wrapper
+          unzip -q marathi_brain_challenge_one_upload_apk_builder_v11.zip -d wrapper
           V2ZIP=$(find wrapper -name "v2-project.zip" -type f | head -1)
           if [ -z "$V2ZIP" ]; then
             echo "V2 project ZIP not found"
@@ -154,7 +154,7 @@ jobs:
               super.onCreate(savedInstanceState);
 
               WindowCompat.setDecorFitsSystemWindows(getWindow(), false);
-              WindowCompat.getInsetsController(getWindow(), getWindow().getDecorView()).setAppearanceLightStatusBars(false);
+              WindowCompat.getInsetsController(getWindow(), getWindow().getDecorView()).setAppearanceLightStatusBars(true);
               WindowCompat.getInsetsController(getWindow(), getWindow().getDecorView()).setAppearanceLightNavigationBars(true);
               getWindow().setNavigationBarContrastEnforced(false);
 
@@ -190,5 +190,5 @@ jobs:
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
-          name: Marathi-Brain-Challenge-APK-V10
+          name: Marathi-Brain-Challenge-APK-V11
           path: android/app/build/outputs/apk/debug/app-debug.apk
