@@ -9,7 +9,6 @@ permissions:
 jobs:
   deploy-firebase:
     runs-on: ubuntu-latest
-
     env:
       GOOGLE_APPLICATION_CREDENTIALS: ${{ github.workspace }}/firebase-service-account.json
 
@@ -17,50 +16,60 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Locate Firebase project
+      - name: Locate Firebase source
         shell: bash
         run: |
           set -euo pipefail
           FIREBASE_ROOT=""
 
+          # Case 1: source is already committed/extracted at repository root.
           if [ -f "firebase.json" ] && [ -f "firebase/functions/index.js" ]; then
-            FIREBASE_ROOT="."
-          else
-            FOUND_JSON="$(find . -maxdepth 8 -type f -name firebase.json -print -quit || true)"
-            if [ -n "$FOUND_JSON" ]; then
-              CANDIDATE="$(dirname "$FOUND_JSON")"
-              if [ -f "$CANDIDATE/firebase/functions/index.js" ]; then
-                FIREBASE_ROOT="$CANDIDATE"
-              fi
-            fi
+            FIREBASE_ROOT="$PWD"
           fi
 
+          # Case 2: source is inside a specifically named source archive.
           if [ -z "$FIREBASE_ROOT" ]; then
-            ZIP_FILE="$(find . -maxdepth 4 -type f -iname '*.zip' -print -quit || true)"
-            if [ -n "$ZIP_FILE" ]; then
+            SOURCE_ZIP=""
+            for f in \
+              ./marathi-brain-firebase-source.zip \
+              ./firebase-source.zip \
+              ./Marathi-Brain-Firebase-Source.zip; do
+              if [ -f "$f" ]; then SOURCE_ZIP="$f"; break; fi
+            done
+
+            if [ -z "$SOURCE_ZIP" ]; then
+              # Search archives, but only accept one that actually contains firebase.json
+              # and firebase/functions/index.js. This deliberately ignores APK-only ZIPs.
+              while IFS= read -r -d '' f; do
+                if unzip -l "$f" 2>/dev/null | grep -qE '(^|/)firebase\.json$' \
+                  && unzip -l "$f" 2>/dev/null | grep -qE '(^|/)firebase/functions/index\.js$'; then
+                  SOURCE_ZIP="$f"
+                  break
+                fi
+              done < <(find . -maxdepth 4 -type f -iname '*.zip' -print0)
+            fi
+
+            if [ -n "$SOURCE_ZIP" ]; then
               rm -rf .firebase-source
               mkdir -p .firebase-source
-              unzip -q "$ZIP_FILE" -d .firebase-source
-              FOUND_JSON="$(find .firebase-source -maxdepth 10 -type f -name firebase.json -print -quit || true)"
-              if [ -n "$FOUND_JSON" ]; then
-                CANDIDATE="$(dirname "$FOUND_JSON")"
-                if [ -f "$CANDIDATE/firebase/functions/index.js" ]; then
-                  FIREBASE_ROOT="$CANDIDATE"
+              unzip -q "$SOURCE_ZIP" -d .firebase-source
+
+              CANDIDATE="$(find .firebase-source -type f -name firebase.json -print -quit || true)"
+              if [ -n "$CANDIDATE" ]; then
+                CANDIDATE_DIR="$(dirname "$CANDIDATE")"
+                if [ -f "$CANDIDATE_DIR/firebase/functions/index.js" ]; then
+                  FIREBASE_ROOT="$(cd "$CANDIDATE_DIR" && pwd)"
                 fi
               fi
             fi
           fi
 
           if [ -z "$FIREBASE_ROOT" ]; then
-            echo "ERROR: Firebase project not found. Expected firebase.json and firebase/functions/index.js."
-            find . -maxdepth 5 -type f -print | sort | head -300
+            echo "ERROR: Firebase source is missing from this repository."
+            echo "Upload marathi-brain-firebase-source.zip (provided with this fix) OR commit firebase.json + firebase/ directory."
+            echo "Existing ZIP files are listed below; APK-only ZIPs are intentionally ignored."
+            find . -maxdepth 3 -type f -iname '*.zip' -print | sort || true
             exit 1
-          fi
-
-          if [ "$FIREBASE_ROOT" = "." ]; then
-            FIREBASE_ROOT="$PWD"
-          elif [[ "$FIREBASE_ROOT" = ./* ]]; then
-            FIREBASE_ROOT="$PWD/${FIREBASE_ROOT#./}"
           fi
 
           echo "FIREBASE_ROOT=$FIREBASE_ROOT" >> "$GITHUB_ENV"
@@ -74,6 +83,7 @@ jobs:
           test -f "$FIREBASE_ROOT/firebase/firestore.rules"
           test -f "$FIREBASE_ROOT/firebase/functions/package.json"
           test -f "$FIREBASE_ROOT/firebase/functions/index.js"
+          node -e 'const fs=require("fs"); JSON.parse(fs.readFileSync(process.env.FIREBASE_ROOT+"/firebase.json","utf8")); console.log("firebase.json: valid JSON")'
 
       - name: Create service-account file and determine project ID
         shell: bash
@@ -81,24 +91,12 @@ jobs:
           FIREBASE_SERVICE_ACCOUNT_JSON: ${{ secrets.FIREBASE_SERVICE_ACCOUNT_JSON }}
         run: |
           set -euo pipefail
-
-          if [ -z "${FIREBASE_SERVICE_ACCOUNT_JSON:-}" ]; then
-            echo "ERROR: Missing GitHub Actions secret FIREBASE_SERVICE_ACCOUNT_JSON"
-            exit 1
-          fi
-
+          test -n "${FIREBASE_SERVICE_ACCOUNT_JSON:-}" || { echo "ERROR: Missing FIREBASE_SERVICE_ACCOUNT_JSON secret"; exit 1; }
           printf '%s' "$FIREBASE_SERVICE_ACCOUNT_JSON" > "$GOOGLE_APPLICATION_CREDENTIALS"
+          node -e 'const fs=require("fs"); const p=process.env.GOOGLE_APPLICATION_CREDENTIALS; const x=JSON.parse(fs.readFileSync(p,"utf8")); for (const k of ["project_id","client_email","private_key"]) if(!x[k]) throw new Error(`Service account JSON missing ${k}`); console.log(`Service account project: ${x.project_id}`);'
 
-          PROJECT_ID="$(node -e "const fs=require('fs'); const x=JSON.parse(fs.readFileSync(process.env.GOOGLE_APPLICATION_CREDENTIALS,'utf8')); if(!x.project_id || !x.client_email || !x.private_key) throw new Error('Service account JSON must contain project_id, client_email and private_key'); process.stdout.write(x.project_id);")"
-
-          if [[ ! "$PROJECT_ID" =~ ^[a-z][a-z0-9-]{4,28}[a-z0-9]$ ]]; then
-            echo "ERROR: Service account contains an invalid Firebase/Google project ID: $PROJECT_ID"
-            echo "Use the real project ID, for example: marathi-brain-challenge"
-            exit 1
-          fi
-
+          PROJECT_ID="$(node -e 'const fs=require("fs"); const x=JSON.parse(fs.readFileSync(process.env.GOOGLE_APPLICATION_CREDENTIALS,"utf8")); process.stdout.write(x.project_id)')"
           echo "FIREBASE_PROJECT_ID=$PROJECT_ID" >> "$GITHUB_ENV"
-          echo "Firebase project ID loaded from the service-account JSON."
 
       - name: Verify client and service-account project match
         shell: bash
@@ -106,21 +104,19 @@ jobs:
           set -euo pipefail
           CONFIG="$FIREBASE_ROOT/player/firebase-config.js"
           if [ -f "$CONFIG" ]; then
-            CLIENT_ID="$(node -e 'const fs=require("fs"); const t=fs.readFileSync(process.argv[1],"utf8"); const m=t.match(/\bprojectId\s*:\s*["\\']([^"\\']+)["\\']/); process.stdout.write(m ? m[1] : "");' "$CONFIG")"
+            CLIENT_ID="$(node -e 'const fs=require("fs"); const t=fs.readFileSync(process.argv[1],"utf8"); const m=t.match(/projectId\s*:\s*["\x27]([^"\x27]+)["\x27]/); process.stdout.write(m ? m[1] : "");' "$CONFIG")"
             if [ -n "$CLIENT_ID" ] && [ "$CLIENT_ID" != "$FIREBASE_PROJECT_ID" ]; then
-              echo "ERROR: Firebase project mismatch."
-              echo "Service-account project_id: $FIREBASE_PROJECT_ID"
-              echo "Client firebase-config projectId: $CLIENT_ID"
+              echo "ERROR: Firebase project mismatch: client=$CLIENT_ID service-account=$FIREBASE_PROJECT_ID"
               exit 1
             fi
-          else
-            echo "Warning: player/firebase-config.js not found; skipping client project ID comparison."
           fi
 
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
           node-version: '20'
+          cache: npm
+          cache-dependency-path: ${{ env.FIREBASE_ROOT }}/firebase/functions/package.json
 
       - name: Install Firebase CLI
         run: npm install --global firebase-tools@latest
@@ -135,7 +131,6 @@ jobs:
         run: |
           set -euo pipefail
           printf '{"projects":{"default":"%s"}}\n' "$FIREBASE_PROJECT_ID" > .firebaserc
-          echo "Firebase project configured: $FIREBASE_PROJECT_ID"
 
       - name: Check Firebase authentication
         working-directory: ${{ env.FIREBASE_ROOT }}
@@ -143,13 +138,7 @@ jobs:
 
       - name: Deploy Firestore rules and Cloud Functions
         working-directory: ${{ env.FIREBASE_ROOT }}
-        shell: bash
-        run: |
-          set -euo pipefail
-          firebase deploy \
-            --project "$FIREBASE_PROJECT_ID" \
-            --only firestore:rules,functions \
-            --non-interactive
+        run: firebase deploy --project "$FIREBASE_PROJECT_ID" --only firestore:rules,functions --non-interactive
 
       - name: Cleanup credentials
         if: always()
