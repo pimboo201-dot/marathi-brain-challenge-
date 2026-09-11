@@ -14,9 +14,9 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Extract uploaded wrapper ZIP
+      - name: Extract V9 wrapper ZIP
         run: |
-          unzip -q marathi_brain_challenge_one_upload_apk_builder_v8.zip -d wrapper
+          unzip -q marathi_brain_challenge_one_upload_apk_builder_v9.zip -d wrapper
           V2ZIP=$(find wrapper -name "v2-project.zip" -type f | head -1)
           if [ -z "$V2ZIP" ]; then
             echo "V2 project ZIP not found"
@@ -33,10 +33,11 @@ jobs:
           fi
           echo "PROJECT_DIR=$PROJECT_DIR" >> $GITHUB_ENV
 
-      - name: Prepare Android project
+      - name: Prepare web + Capacitor project
         run: |
           mkdir -p www
           cp -r "$PROJECT_DIR/player/"* www/
+          cp -r "$PROJECT_DIR/assets" .
 
           cat > package.json <<'EOF'
           {
@@ -45,9 +46,13 @@ jobs:
             "private": true,
             "dependencies": {
               "@capacitor/android": "^8.0.0",
-              "@capacitor/core": "^8.0.0"
+              "@capacitor/app": "^8.0.0",
+              "@capacitor/core": "^8.0.0",
+              "@capacitor/status-bar": "^8.0.0",
+              "@capacitor-community/admob": "^8.0.0"
             },
             "devDependencies": {
+              "@capacitor/assets": "^3.0.5",
               "@capacitor/cli": "^8.0.0",
               "typescript": "^5.0.0"
             }
@@ -59,7 +64,7 @@ jobs:
 
           const config: CapacitorConfig = {
             appId: 'com.marathibrainchallenge.app',
-            appName: 'Marathi Brain Challenge',
+            appName: 'मराठी बुद्धीचाचणी',
             webDir: 'www'
           };
 
@@ -83,8 +88,102 @@ jobs:
       - name: Add Android
         run: npx cap add android
 
-      - name: Sync Android
+      - name: Generate Android app icon and splash
+        run: |
+          npx @capacitor/assets generate --android --assetPath assets --iconBackgroundColor '#1D2942' --iconBackgroundColorDark '#152238' --splashBackgroundColor '#F4F6F9' --splashBackgroundColorDark '#1D2942'
+
+      - name: Configure Android SDK and native system bars
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          import re
+
+          # Capacitor templates can keep SDK versions in variables.gradle or directly in build.gradle.
+          files=[Path('android/variables.gradle'),Path('android/app/build.gradle'),Path('android/app/build.gradle.kts')]
+          for p in files:
+              if not p.exists():
+                  continue
+              s=p.read_text()
+              replacements=[
+                  (r'(minSdkVersion\s*[=:]\s*)\d+', r'\g<1>24'),
+                  (r'(targetSdkVersion\s*[=:]\s*)\d+', r'\g<1>36'),
+                  (r'(compileSdkVersion\s*[=:]\s*)\d+', r'\g<1>36'),
+                  (r'(minSdk\s*[=:]\s*)\d+', r'\g<1>24'),
+                  (r'(targetSdk\s*[=:]\s*)\d+', r'\g<1>36'),
+                  (r'(compileSdk\s*[=:]\s*)\d+', r'\g<1>36'),
+              ]
+              for pat,repl in replacements:
+                  s=re.sub(pat,repl,s)
+              p.write_text(s)
+
+          # AdMob test application ID. Replace with your own App ID before production release.
+          strings=Path('android/app/src/main/res/values/strings.xml')
+          strings.parent.mkdir(parents=True,exist_ok=True)
+          text=strings.read_text() if strings.exists() else '<resources>\n</resources>\n'
+          if 'name="admob_app_id"' in text:
+              text=re.sub(r'<string name="admob_app_id">.*?</string>', '<string name="admob_app_id">ca-app-pub-3940256099942544~3347511713</string>', text)
+          else:
+              text=text.replace('</resources>','  <string name="admob_app_id">ca-app-pub-3940256099942544~3347511713</string>\n</resources>')
+          strings.write_text(text)
+
+          manifest=Path('android/app/src/main/AndroidManifest.xml')
+          m=manifest.read_text()
+          meta='<meta-data android:name="com.google.android.gms.ads.APPLICATION_ID" android:value="@string/admob_app_id" />'
+          if 'com.google.android.gms.ads.APPLICATION_ID' not in m:
+              m=m.replace('</application>', f'    {meta}\\n    </application>')
+          manifest.write_text(m)
+
+          # Replace MainActivity with an inset-safe activity. This prevents the WebView
+          # from covering the Android status/navigation bars on Android 15+ edge-to-edge.
+          main=Path('android/app/src/main/java/com/marathibrainchallenge/app/MainActivity.java')
+          main.parent.mkdir(parents=True,exist_ok=True)
+          main.write_text(r'''package com.marathibrainchallenge.app;
+          
+          import android.os.Bundle;
+          import android.view.View;
+          import android.webkit.WebView;
+          
+          import androidx.core.graphics.Insets;
+          import androidx.core.view.ViewCompat;
+          import androidx.core.view.WindowCompat;
+          import androidx.core.view.WindowInsetsCompat;
+          
+          import com.getcapacitor.BridgeActivity;
+          
+          public class MainActivity extends BridgeActivity {
+            @Override
+            public void onCreate(Bundle savedInstanceState) {
+              super.onCreate(savedInstanceState);
+          
+              WindowCompat.enableEdgeToEdge(getWindow());
+              WindowCompat.getInsetsController(getWindow(), getWindow().getDecorView()).setAppearanceLightStatusBars(true);
+              WindowCompat.getInsetsController(getWindow(), getWindow().getDecorView()).setAppearanceLightNavigationBars(true);
+              getWindow().setNavigationBarContrastEnforced(false);
+          
+              WebView webView = getBridge().getWebView();
+              ViewCompat.setOnApplyWindowInsetsListener(webView, (View v, WindowInsetsCompat insets) -> {
+                Insets bars = insets.getInsets(WindowInsetsCompat.Type.systemBars() | WindowInsetsCompat.Type.displayCutout());
+                String js = "document.documentElement.style.setProperty('--safe-top','" + bars.top + "px');"
+                    + "document.documentElement.style.setProperty('--safe-bottom','" + bars.bottom + "px');"
+                    + "document.documentElement.style.setProperty('--safe-left','" + bars.left + "px');"
+                    + "document.documentElement.style.setProperty('--safe-right','" + bars.right + "px');";
+                webView.evaluateJavascript(js, null);
+                return insets;
+              });
+              ViewCompat.requestApplyInsets(webView);
+            }
+          }
+          ''')
+          PY
+
+      - name: Sync Capacitor plugins
         run: npx cap sync android
+
+      - name: Verify native setup
+        run: |
+          grep -R "admob_app_id" -n android/app/src/main/res/values/strings.xml
+          grep -R "com.google.android.gms.ads.APPLICATION_ID" -n android/app/src/main/AndroidManifest.xml
+          grep -R "setOnApplyWindowInsetsListener" -n android/app/src/main/java/com/marathibrainchallenge/app/MainActivity.java
 
       - name: Build APK
         working-directory: android
@@ -93,5 +192,5 @@ jobs:
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
-          name: Marathi-Brain-Challenge-APK
+          name: Marathi-Brain-Challenge-APK-V9
           path: android/app/build/outputs/apk/debug/app-debug.apk
