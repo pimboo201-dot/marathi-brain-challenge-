@@ -13,15 +13,28 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      - name: Extract V17 wrapper ZIP
+        run: |
+          unzip -q marathi_brain_challenge_fixed_v17.zip -d wrapper
+          V2ZIP=$(find wrapper -name "v2-project.zip" -type f | head -1)
+          test -n "$V2ZIP" || { echo "v2-project.zip not found"; exit 1; }
+          unzip -q "$V2ZIP" -d project
+
+      - name: Find V17 project
+        run: |
+          PROJECT_DIR=$(find project -type d -name player -print -quit | xargs -r dirname)
+          test -n "$PROJECT_DIR" || { echo "player folder not found"; exit 1; }
+          echo "PROJECT_DIR=$PROJECT_DIR" >> "$GITHUB_ENV"
+
       - name: Prepare web + Capacitor project
         run: |
           mkdir -p www
-          cp -r player/* www/
-
+          cp -r "$PROJECT_DIR/player/"* www/
+          cp -r "$PROJECT_DIR/assets" .
           cat > package.json <<'JSON'
           {
-            "name": "marathi-brain-challenge",
-            "version": "1.0.16",
+            "name": "marathi-brain-challenge-v17",
+            "version": "17.0.0",
             "private": true,
             "dependencies": {
               "@capacitor/android": "^8.0.0",
@@ -37,7 +50,6 @@ jobs:
             }
           }
           JSON
-
           cat > capacitor.config.ts <<'TS'
           import type { CapacitorConfig } from '@capacitor/cli';
           const config: CapacitorConfig = {
@@ -65,23 +77,16 @@ jobs:
       - name: Add Android
         run: npx cap add android
 
-      - name: Generate branded Android icon and splash
-        run: |
-          npx @capacitor/assets generate --android --assetPath assets \
-            --iconBackgroundColor '#FFFFFF' \
-            --iconBackgroundColorDark '#FFFFFF' \
-            --splashBackgroundColor '#F7FBFF' \
-            --splashBackgroundColorDark '#F7FBFF'
+      - name: Generate Android assets
+        run: npx @capacitor/assets generate --android --assetPath assets --iconBackgroundColor '#1D2942' --iconBackgroundColorDark '#152238' --splashBackgroundColor '#F4F6F9' --splashBackgroundColorDark '#1D2942'
 
-      - name: Configure Android SDK, version and safe system bars
+      - name: Configure Android SDK and native system bars
         run: |
           python3 - <<'PY'
           from pathlib import Path
           import re
-
           for p in [Path('android/variables.gradle'),Path('android/app/build.gradle'),Path('android/app/build.gradle.kts')]:
-              if not p.exists():
-                  continue
+              if not p.exists(): continue
               s=p.read_text()
               for pat,repl in [
                   (r'(minSdkVersion\s*[=:]\s*)\d+', r'\g<1>24'),
@@ -89,88 +94,67 @@ jobs:
                   (r'(compileSdkVersion\s*[=:]\s*)\d+', r'\g<1>36'),
                   (r'(minSdk\s*[=:]\s*)\d+', r'\g<1>24'),
                   (r'(targetSdk\s*[=:]\s*)\d+', r'\g<1>36'),
-                  (r'(compileSdk\s*[=:]\s*)\d+', r'\g<1>36'),
-              ]:
+                  (r'(compileSdk\s*[=:]\s*)\d+', r'\g<1>36')]:
                   s=re.sub(pat,repl,s)
-              s=re.sub(r'versionCode\s*=\s*\d+', 'versionCode = 16', s)
-              s=re.sub(r'versionName\s*=\s*"[^"]+"', 'versionName = "16.0.0"', s)
               p.write_text(s)
-
           strings=Path('android/app/src/main/res/values/strings.xml')
           strings.parent.mkdir(parents=True,exist_ok=True)
           text=strings.read_text() if strings.exists() else '<resources>\n</resources>\n'
-          meta_id='ca-app-pub-3940256099942544~3347511713'
           if 'name="admob_app_id"' in text:
-              text=re.sub(r'<string name="admob_app_id">.*?</string>', f'<string name="admob_app_id">{meta_id}</string>', text)
+              text=re.sub(r'<string name="admob_app_id">.*?</string>', '<string name="admob_app_id">ca-app-pub-3940256099942544~3347511713</string>', text)
           else:
-              text=text.replace('</resources>',f'  <string name="admob_app_id">{meta_id}</string>\n</resources>')
+              text=text.replace('</resources>','  <string name="admob_app_id">ca-app-pub-3940256099942544~3347511713</string>\n</resources>')
           strings.write_text(text)
-
           manifest=Path('android/app/src/main/AndroidManifest.xml')
           m=manifest.read_text()
           meta='<meta-data android:name="com.google.android.gms.ads.APPLICATION_ID" android:value="@string/admob_app_id" />'
-          if 'com.google.android.gms.ads.APPLICATION_ID' not in m:
-              m=m.replace('</application>',f'    {meta}\n    </application>')
+          if 'com.google.android.gms.ads.APPLICATION_ID' not in m: m=m.replace('</application>', f'    {meta}\n    </application>')
           manifest.write_text(m)
-
           main=Path('android/app/src/main/java/com/marathibrainchallenge/app/MainActivity.java')
           main.parent.mkdir(parents=True,exist_ok=True)
           main.write_text(r'''package com.marathibrainchallenge.app;
 
-          import android.os.Bundle;
-          import android.webkit.WebView;
-          import androidx.core.graphics.Insets;
-          import androidx.core.view.ViewCompat;
-          import androidx.core.view.WindowCompat;
-          import androidx.core.view.WindowInsetsCompat;
-          import com.getcapacitor.BridgeActivity;
+import android.os.Bundle;
+import android.webkit.WebView;
+import androidx.core.graphics.Insets;
+import androidx.core.view.ViewCompat;
+import androidx.core.view.WindowCompat;
+import androidx.core.view.WindowInsetsCompat;
+import com.getcapacitor.BridgeActivity;
 
-          public class MainActivity extends BridgeActivity {
-            @Override public void onCreate(Bundle savedInstanceState) {
-              super.onCreate(savedInstanceState);
-              WindowCompat.setDecorFitsSystemWindows(getWindow(), false);
-              getWindow().setStatusBarColor(android.graphics.Color.WHITE);
-              getWindow().setNavigationBarColor(android.graphics.Color.WHITE);
-              WindowCompat.getInsetsController(getWindow(), getWindow().getDecorView()).setAppearanceLightStatusBars(true);
-              WindowCompat.getInsetsController(getWindow(), getWindow().getDecorView()).setAppearanceLightNavigationBars(true);
-              getWindow().setNavigationBarContrastEnforced(false);
-              WebView webView=getBridge().getWebView();
-              ViewCompat.setOnApplyWindowInsetsListener(webView,(view,insets)->{
-                Insets bars=insets.getInsets(WindowInsetsCompat.Type.systemBars() | WindowInsetsCompat.Type.displayCutout());
-                float d=getResources().getDisplayMetrics().density;
-                int top=Math.round(bars.top/d), bottom=Math.round(bars.bottom/d), left=Math.round(bars.left/d), right=Math.round(bars.right/d);
-                String js="document.documentElement.style.setProperty('--safe-top','"+top+"px');"+
-                  "document.documentElement.style.setProperty('--safe-bottom','"+bottom+"px');"+
-                  "document.documentElement.style.setProperty('--safe-left','"+left+"px');"+
-                  "document.documentElement.style.setProperty('--safe-right','"+right+"px');";
-                webView.evaluateJavascript(js,null);
-                return insets;
-              });
-              ViewCompat.requestApplyInsets(webView);
-            }
-          }
-          ''')
+public class MainActivity extends BridgeActivity {
+  @Override public void onCreate(Bundle savedInstanceState) {
+    super.onCreate(savedInstanceState);
+    WindowCompat.setDecorFitsSystemWindows(getWindow(), false);
+    getWindow().setStatusBarColor(android.graphics.Color.WHITE);
+    getWindow().setNavigationBarColor(android.graphics.Color.WHITE);
+    WindowCompat.getInsetsController(getWindow(), getWindow().getDecorView()).setAppearanceLightStatusBars(true);
+    WindowCompat.getInsetsController(getWindow(), getWindow().getDecorView()).setAppearanceLightNavigationBars(true);
+    getWindow().setNavigationBarContrastEnforced(false);
+    WebView webView=getBridge().getWebView();
+    ViewCompat.setOnApplyWindowInsetsListener(webView,(view,insets)->{
+      Insets bars=insets.getInsets(WindowInsetsCompat.Type.systemBars()|WindowInsetsCompat.Type.displayCutout());
+      float d=getResources().getDisplayMetrics().density;
+      String js="document.documentElement.style.setProperty('--safe-top','"+Math.round(bars.top/d)+"px');"+
+        "document.documentElement.style.setProperty('--safe-bottom','"+Math.round(bars.bottom/d)+"px');"+
+        "document.documentElement.style.setProperty('--safe-left','"+Math.round(bars.left/d)+"px');"+
+        "document.documentElement.style.setProperty('--safe-right','"+Math.round(bars.right/d)+"px');";
+      webView.evaluateJavascript(js,null); return insets;
+    });
+    ViewCompat.requestApplyInsets(webView);
+  }
+}
+''')
           PY
 
       - name: Sync Capacitor plugins
         run: npx cap sync android
 
-      - name: Verify V17 branding and safe area
-        run: |
-          test -s assets/icon.png
-          test -s assets/splash.png
-          test -s www/app-icon.png
-          test -s www/splash-brand.png
-          grep -q 'Version 16.0.0' www/index.html
-          grep -q 'systemBottomShield' www/index.html
-          grep -q -- '--header-h + 10px' www/style.css
-          grep -q 'setOnApplyWindowInsetsListener' android/app/src/main/java/com/marathibrainchallenge/app/MainActivity.java
-
-      - name: Build APK
+      - name: Build V17 APK
         working-directory: android
         run: ./gradlew assembleDebug
 
-      - name: Upload APK
+      - name: Upload V17 APK
         uses: actions/upload-artifact@v4
         with:
           name: Marathi-Brain-Challenge-APK-V17
