@@ -1,117 +1,70 @@
-name: Build Marathi Brain Challenge APK V17
-
-on:
-  workflow_dispatch:
-
-permissions:
-  contents: read
-
-jobs:
-  build-apk:
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Extract V17 wrapper ZIP
-        run: |
-          unzip -q marathi_brain_challenge_fixed_v17.zip -d wrapper
-          V2ZIP=$(find wrapper -name "v2-project.zip" -type f | head -1)
-          test -n "$V2ZIP" || { echo "v2-project.zip not found"; exit 1; }
-          unzip -q "$V2ZIP" -d project
-
-      - name: Find V17 project
-        run: |
-          PROJECT_DIR=$(find project -type d -name player -print -quit | xargs -r dirname)
-          test -n "$PROJECT_DIR" || { echo "player folder not found"; exit 1; }
-          echo "PROJECT_DIR=$PROJECT_DIR" >> "$GITHUB_ENV"
-
-      - name: Prepare web + Capacitor project
-        run: |
-          mkdir -p www
-          cp -r "$PROJECT_DIR/player/"* www/
-          cp -r "$PROJECT_DIR/assets" .
-          cat > package.json <<'JSON'
-          {
-            "name": "marathi-brain-challenge-v17",
-            "version": "17.0.0",
-            "private": true,
-            "dependencies": {
-              "@capacitor/android": "^8.0.0",
-              "@capacitor/app": "^8.0.0",
-              "@capacitor/core": "^8.0.0",
-              "@capacitor/status-bar": "^8.0.0",
-              "@capacitor-community/admob": "^8.0.0"
-            },
-            "devDependencies": {
-              "@capacitor/assets": "^3.0.5",
-              "@capacitor/cli": "^8.0.0",
-              "typescript": "^5.0.0"
-            }
-          }
-          JSON
-          cat > capacitor.config.ts <<'TS'
-          import type { CapacitorConfig } from '@capacitor/cli';
-          const config: CapacitorConfig = {
-            appId: 'com.marathibrainchallenge.app',
-            appName: 'मराठी बुद्धीचाचणी',
-            webDir: 'www'
-          };
-          export default config;
-          TS
-
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: 22
-
-      - name: Setup Java
-        uses: actions/setup-java@v4
-        with:
-          distribution: temurin
-          java-version: '21'
-
-      - name: Install dependencies
-        run: npm install
-
-      - name: Add Android
-        run: npx cap add android
-
-      - name: Generate Android assets
-        run: npx @capacitor/assets generate --android --assetPath assets --iconBackgroundColor '#1D2942' --iconBackgroundColorDark '#152238' --splashBackgroundColor '#F4F6F9' --splashBackgroundColorDark '#1D2942'
-
       - name: Configure Android SDK and native system bars
         run: |
           python3 - <<'PY'
           from pathlib import Path
           import re
-          for p in [Path('android/variables.gradle'),Path('android/app/build.gradle'),Path('android/app/build.gradle.kts')]:
-              if not p.exists(): continue
-              s=p.read_text()
-              for pat,repl in [
+
+          for p in [
+              Path('android/variables.gradle'),
+              Path('android/app/build.gradle'),
+              Path('android/app/build.gradle.kts')
+          ]:
+              if not p.exists():
+                  continue
+
+              s = p.read_text()
+
+              for pat, repl in [
                   (r'(minSdkVersion\s*[=:]\s*)\d+', r'\g<1>24'),
                   (r'(targetSdkVersion\s*[=:]\s*)\d+', r'\g<1>36'),
                   (r'(compileSdkVersion\s*[=:]\s*)\d+', r'\g<1>36'),
                   (r'(minSdk\s*[=:]\s*)\d+', r'\g<1>24'),
                   (r'(targetSdk\s*[=:]\s*)\d+', r'\g<1>36'),
-                  (r'(compileSdk\s*[=:]\s*)\d+', r'\g<1>36')]:
-                  s=re.sub(pat,repl,s)
+                  (r'(compileSdk\s*[=:]\s*)\d+', r'\g<1>36')
+              ]:
+                  s = re.sub(pat, repl, s)
+
               p.write_text(s)
-          strings=Path('android/app/src/main/res/values/strings.xml')
-          strings.parent.mkdir(parents=True,exist_ok=True)
-          text=strings.read_text() if strings.exists() else '<resources>\n</resources>\n'
+
+          strings = Path('android/app/src/main/res/values/strings.xml')
+          strings.parent.mkdir(parents=True, exist_ok=True)
+
+          text = (
+              strings.read_text()
+              if strings.exists()
+              else '<resources>\n</resources>\n'
+          )
+
           if 'name="admob_app_id"' in text:
-              text=re.sub(r'<string name="admob_app_id">.*?</string>', '<string name="admob_app_id">ca-app-pub-3940256099942544~3347511713</string>', text)
+              text = re.sub(
+                  r'<string name="admob_app_id">.*?</string>',
+                  '<string name="admob_app_id">ca-app-pub-3940256099942544~3347511713</string>',
+                  text
+              )
           else:
-              text=text.replace('</resources>','  <string name="admob_app_id">ca-app-pub-3940256099942544~3347511713</string>\n</resources>')
+              text = text.replace(
+                  '</resources>',
+                  '  <string name="admob_app_id">ca-app-pub-3940256099942544~3347511713</string>\n</resources>'
+              )
+
           strings.write_text(text)
-          manifest=Path('android/app/src/main/AndroidManifest.xml')
-          m=manifest.read_text()
-          meta='<meta-data android:name="com.google.android.gms.ads.APPLICATION_ID" android:value="@string/admob_app_id" />'
-          if 'com.google.android.gms.ads.APPLICATION_ID' not in m: m=m.replace('</application>', f'    {meta}\n    </application>')
+
+          manifest = Path('android/app/src/main/AndroidManifest.xml')
+          m = manifest.read_text()
+
+          meta = '<meta-data android:name="com.google.android.gms.ads.APPLICATION_ID" android:value="@string/admob_app_id" />'
+
+          if 'com.google.android.gms.ads.APPLICATION_ID' not in m:
+              m = m.replace(
+                  '</application>',
+                  f'    {meta}\n    </application>'
+              )
+
           manifest.write_text(m)
-          main=Path('android/app/src/main/java/com/marathibrainchallenge/app/MainActivity.java')
-          main.parent.mkdir(parents=True,exist_ok=True)
+
+          main = Path('android/app/src/main/java/com/marathibrainchallenge/app/MainActivity.java')
+          main.parent.mkdir(parents=True, exist_ok=True)
+
           main.write_text(r'''package com.marathibrainchallenge.app;
 
 import android.os.Bundle;
@@ -125,37 +78,58 @@ import com.getcapacitor.BridgeActivity;
 public class MainActivity extends BridgeActivity {
   @Override public void onCreate(Bundle savedInstanceState) {
     super.onCreate(savedInstanceState);
+
     WindowCompat.setDecorFitsSystemWindows(getWindow(), false);
+
     getWindow().setStatusBarColor(android.graphics.Color.WHITE);
     getWindow().setNavigationBarColor(android.graphics.Color.WHITE);
-    WindowCompat.getInsetsController(getWindow(), getWindow().getDecorView()).setAppearanceLightStatusBars(true);
-    WindowCompat.getInsetsController(getWindow(), getWindow().getDecorView()).setAppearanceLightNavigationBars(true);
+
+    WindowCompat.getInsetsController(
+      getWindow(),
+      getWindow().getDecorView()
+    ).setAppearanceLightStatusBars(true);
+
+    WindowCompat.getInsetsController(
+      getWindow(),
+      getWindow().getDecorView()
+    ).setAppearanceLightNavigationBars(true);
+
     getWindow().setNavigationBarContrastEnforced(false);
-    WebView webView=getBridge().getWebView();
-    ViewCompat.setOnApplyWindowInsetsListener(webView,(view,insets)->{
-      Insets bars=insets.getInsets(WindowInsetsCompat.Type.systemBars()|WindowInsetsCompat.Type.displayCutout());
-      float d=getResources().getDisplayMetrics().density;
-      String js="document.documentElement.style.setProperty('--safe-top','"+Math.round(bars.top/d)+"px');"+
-        "document.documentElement.style.setProperty('--safe-bottom','"+Math.round(bars.bottom/d)+"px');"+
-        "document.documentElement.style.setProperty('--safe-left','"+Math.round(bars.left/d)+"px');"+
-        "document.documentElement.style.setProperty('--safe-right','"+Math.round(bars.right/d)+"px');";
-      webView.evaluateJavascript(js,null); return insets;
-    });
+
+    WebView webView = getBridge().getWebView();
+
+    ViewCompat.setOnApplyWindowInsetsListener(
+      webView,
+      (view, insets) -> {
+        Insets bars = insets.getInsets(
+          WindowInsetsCompat.Type.systemBars()
+          | WindowInsetsCompat.Type.displayCutout()
+        );
+
+        float d = getResources().getDisplayMetrics().density;
+
+        String js =
+          "document.documentElement.style.setProperty('--safe-top','"
+          + Math.round(bars.top / d)
+          + "px');"
+          + "document.documentElement.style.setProperty('--safe-bottom','"
+          + Math.round(bars.bottom / d)
+          + "px');"
+          + "document.documentElement.style.setProperty('--safe-left','"
+          + Math.round(bars.left / d)
+          + "px');"
+          + "document.documentElement.style.setProperty('--safe-right','"
+          + Math.round(bars.right / d)
+          + "px');";
+
+        webView.evaluateJavascript(js, null);
+
+        return insets;
+      }
+    );
+
     ViewCompat.requestApplyInsets(webView);
   }
 }
 ''')
           PY
-
-      - name: Sync Capacitor plugins
-        run: npx cap sync android
-
-      - name: Build V17 APK
-        working-directory: android
-        run: ./gradlew assembleDebug
-
-      - name: Upload V17 APK
-        uses: actions/upload-artifact@v4
-        with:
-          name: Marathi-Brain-Challenge-APK-V17
-          path: android/app/build/outputs/apk/debug/app-debug.apk
